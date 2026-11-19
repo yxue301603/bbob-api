@@ -12,8 +12,8 @@ def prompts(X, raw, Q, t, backend, budget):
                  predictions_by_candidate=pilot.rounded(backend["predictions"]),
                  residual_std_by_candidate=pilot.rounded(backend["std"]),
                  sr_training_rmse=pilot.rounded(backend["training_rmse"]))
-    instruction = ("Minimize an unknown continuous function on [-1,1]^5. Return a single candidate index (zero based) for the next real query. "
-        "Goal: low best-so-far value during search and especially at the end. History rows are z1..z5 followed by standardized y, lower is better. "
+    instruction = (f"Minimize an unknown continuous function on [-1,1]^{X.shape[1]}. Return a single candidate index (zero based) for the next real query. "
+        f"Goal: low best-so-far value during search and especially at the end. History rows are z1..z{X.shape[1]} followed by standardized y, lower is better. "
         "Candidate order is randomized. Three surrogate models provide predictions on the same standardized y scale. Each prediction combines a "
         "symbolic expression and a Gaussian-process residual correction learned from observed data. The reported standard deviation is conditional "
         "residual-model uncertainty and excludes uncertainty about the expression itself. Training RMSE is the raw expression's in-sample error, "

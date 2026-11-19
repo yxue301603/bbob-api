@@ -2,6 +2,42 @@
 
 本目录可以单独复制运行。实验采用五维 COCO BBOB，在相同起点和查询预算下比较历史观测、原始符号回归（SR）、Kriging 残差修正、LCF 变量组合和固定规则。模型选点通过供应商的 Chat Completions 接口直接发送 HTTP 请求，身份凭据来自环境变量。每轮为一次独立请求。
 
+## COCO 标准评测与公开算法对照
+
+`coco_run.py` 将每次真实函数调用交给 COCO 官方记录器，一次运行评测一种方法。结果 ZIP 可直接交给 `cocopp` 生成达标率曲线、达到目标所需的查询次数和 HTML 图表。原有 `run.py` 保留五维配对实验及其自定义指标。
+
+先按下文安装依赖，激活虚拟环境，再安装后处理工具。以下命令适用于 Windows 和 macOS。
+
+```sh
+python -m pip install cocopp==2.9.3
+python coco_run.py --arm raw_rule --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/check
+python -m cocopp --no-interactive -o outputs/plots outputs/check/raw_rule.zip 2009/NEWUOA_ros_noiseless
+```
+
+以上命令评测固定规则，共 8 个问题，最多 200 次真实查询，模型调用为零。最后一条命令会下载公开基线并生成对比图。公开基线覆盖更多问题，小样本的汇总曲线可能涉及不同的题目范围。要在严格相同的范围上比较，请下载下方的 NEWUOA 数据包到当前目录，再运行：
+
+```sh
+python coco_compare.py outputs/check/raw_rule.zip NEWUOA_ros_noiseless.tgz --budget 25 --target 1
+```
+
+输出按函数、维度和实例列出两边的命中次数和运行次数。命中表示在前 25 次真实查询内，最优目标值与已知最优值之差达到 1 或更小。重复运行先在同一问题内求成功率，各问题再等权平均。上述配置的实测值为固定规则 25%，NEWUOA 50%。[NEWUOA 官方数据包](https://raw.githubusercontent.com/numbbo/data-archive/gh-pages/data-archive/bbob/2009/NEWUOA_ros_noiseless.tgz)
+
+**运行模型对照。** 按下文设置 `BBO_API_KEY`、`BBO_MODEL` 和服务地址。以下两组使用相同的起点、候选生成规则和预算；公式组额外看到 SR 表达式。每组最多 40 次模型调用。短名称用于图表标注，实际模型记录在输出目录的 `config.json` 中。
+
+```sh
+python coco_run.py --arm raw_numeric --name SR-numeric --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/numeric
+python coco_run.py --arm raw_formula --name SR-formula --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/formula
+python -m cocopp --no-interactive -o outputs/sr-plots outputs/numeric/SR-numeric.zip outputs/formula/SR-formula.zip
+```
+
+**规划全套评测。** `--full` 使用固定版本 COCO 的默认套件，共 24 个函数、6 种维度（2、3、5、10、20、40）、每组 15 个实例。预算包含 20 个初始点，其后每次从新生成的 20 个候选点中选一个进行真实查询。可以用 `--budget` 设每题固定次数，也可以用 `--budget-per-dim` 设每题预算为维度的倍数。先运行下列命令查看调用上限，移除 `--plan` 后才会执行。高维度和长历史也会增加单次模型请求的长度。
+
+```sh
+python coco_run.py --full --arm raw_formula --budget 70 --out outputs/full-formula --plan
+```
+
+同配置、同目录重跑可恢复。脚本利用已保存的选点重建完整 COCO 日志，已经保存的模型决策会直接复用。ZIP 仅在所选问题全部结束后生成。发布时请保留实际模型 ID、运行配置、代码版本和预算。COCO 接受与论文或预印本关联的完整数据集申请，按每个算法变体分别打包并向官方数据仓库提交收录请求。[官方发布说明](https://coco-platform.org/howto-publish.html)
+
 ## 安装
 
 ### macOS 快速开始（默认终端 zsh）

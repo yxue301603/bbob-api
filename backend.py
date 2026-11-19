@@ -22,22 +22,23 @@ def learn_leaves(X, y, wave):
     correlations = np.abs(centered.T@(y-y.mean())) / (np.linalg.norm(centered,axis=0)+1e-12)
     leaves = []
     for axis in np.argsort(-correlations, kind="stable")[:2]:
-        start = np.zeros(6)
+        n_weights = X.shape[1] + 1
+        start = np.zeros(n_weights)
         start[axis+1] = 1.
         u = X@start[1:]
         nonlinear = np.sin(2*np.pi*u) if wave else u*u
         outer = np.linalg.lstsq(np.column_stack([np.ones(len(X)),u,nonlinear]),y,rcond=1e-8)[0]
         def residual(parameters):
-            weights, coefficients = parameters[:6], parameters[6:]
+            weights, coefficients = parameters[:n_weights], parameters[n_weights:]
             z = weights[0]+X@weights[1:]
             transform = np.sin(2*np.pi*z) if wave else z*z
             estimate = coefficients[0]+coefficients[1]*z+coefficients[2]*transform
             return np.r_[(estimate-y)/np.sqrt(len(y)),
                          np.sqrt(.05)*(weights-start), np.sqrt(.001)*coefficients[1:]]
-        bounds = (np.r_[np.full(6,-3.),np.full(3,-np.inf)],
-                  np.r_[np.full(6,3.),np.full(3,np.inf)])
+        bounds = (np.r_[np.full(n_weights,-3.),np.full(3,-np.inf)],
+                  np.r_[np.full(n_weights,3.),np.full(3,np.inf)])
         result = least_squares(residual, np.r_[start,outer], bounds=bounds, max_nfev=40)
-        leaves.append(result.x[:6])
+        leaves.append(result.x[:n_weights])
     return np.array(leaves)
 
 

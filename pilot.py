@@ -12,36 +12,37 @@ from scipy.special import ndtr
 DIM=5
 
 def seed(f,s,t): return np.random.default_rng(np.random.SeedSequence([260111,f,s,t]))
-def initial(f,s):
-    return qmc.LatinHypercube(DIM,seed=seed(f,s,0)).random(20)*2-1
+def initial(f,s,dimension=DIM):
+    return qmc.LatinHypercube(dimension,seed=seed(f,s,0)).random(20)*2-1
 
 def pool(X,y,rng):
     """Identical generator in all arms, independent of fitted models."""
     best=X[np.argmin(y)]
     elite=X[np.argsort(y)[:5]]
-    v=[rng.uniform(-1,1,DIM) for _ in range(5)]
+    dimension = X.shape[1]
+    v=[rng.uniform(-1,1,dimension) for _ in range(5)]
     for r in [.025,.075,.2,.5]:
-        for _ in range(2): v.append(best+r*rng.normal(size=DIM))
+        for _ in range(2): v.append(best+r*rng.normal(size=dimension))
     for _ in range(3):
-        z=best.copy(); i=rng.integers(DIM); z[i]+=rng.normal(0,.3); v.append(z)
+        z=best.copy(); i=rng.integers(dimension); z[i]+=rng.normal(0,.3); v.append(z)
     for _ in range(4):
         a,b=rng.choice(len(X),2,replace=False)
         v.append(elite[rng.integers(5)]+rng.uniform(.15,.65)*(X[a]-X[b]))
     Q=np.clip(v,-1,1)
     for j in range(len(Q)):
         while np.min(cdist(Q[j:j+1],np.vstack([X,Q[:j]])))<1e-7:
-            Q[j]=rng.uniform(-1,1,DIM)
+            Q[j]=rng.uniform(-1,1,dimension)
     rng.shuffle(Q)
     return Q
 
 def design(X):
     cols=[];names=[];families=[]
-    for i in range(DIM):
+    for i in range(X.shape[1]):
         v=X[:,i]; n=f'z{i+1}'
         for feature,label,kind in [(v,n,'lin'),(v*v,n+'^2','sq'),(v**3,n+'^3','cube'),
                 (np.cos(np.pi*2*v),'cos(2*pi*'+n+')','wave'),(np.sin(np.pi*2*v),'sin(2*pi*'+n+')','wave')]:
             names.append(label);cols.append(feature);families.append(kind)
-    for i in range(DIM):
+    for i in range(X.shape[1]):
         for j in range(i):
             names.append(f'z{j+1}*z{i+1}');cols.append(X[:,j]*X[:,i]);families.append('cross')
     return np.array(cols).T,names,np.array(families)
@@ -89,7 +90,7 @@ def bundle(X,raw,Q,t,budget=50):
     P,F,E=fit(X,y,Q)
     state=dict(queries_left=budget-t,history_z_then_y=rounded(np.c_[X,y]),
                candidates_z=rounded(Q))
-    common="Minimize an unknown continuous function on [-1,1]^5. Return a single candidate index (zero based) for the next real query. Goal: low best-so-far value during search and especially at the end. History rows are z1..z5 followed by standardized y, lower is better. Candidate order is randomized."
+    common=f"Minimize an unknown continuous function on [-1,1]^{X.shape[1]}. Return a single candidate index (zero based) for the next real query. Goal: low best-so-far value during search and especially at the end. History rows are z1..z{X.shape[1]} followed by standardized y, lower is better. Candidate order is randomized."
     for_agents={"history":common+'\n'+json.dumps(state,separators=(',',':'))}
     state.update(predictions_by_candidate=rounded(P),model_LOO_RMSE=rounded(E))
     common+=" Columns in the prediction matrix are three fitted surrogate models in order. LOO RMSE is an approximate fit diagnostic on that same y scale. Weigh expected improvement and uncertainty using all supplied information."
