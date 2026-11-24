@@ -1,133 +1,136 @@
-# BBOB 公式选点 API 实验
+# 组合优化候选方案选择实验
 
-本目录可以单独复制运行。实验采用五维 COCO BBOB，在相同起点和查询预算下比较历史观测、原始符号回归（SR）、Kriging 残差修正、LCF 变量组合和固定规则。模型选点通过供应商的 Chat Completions 接口直接发送 HTTP 请求，身份凭据来自环境变量。每轮为一次独立请求。
+在同一组起点和相同的评分次数下，比较三种选择方式：由模型选择、按符号回归预测选择、随机选择。实验覆盖三个完整的公开题集，共 175 题。每组最终交付一个可行方案、它的真实得分以及每轮的选择记录。
 
-## COCO 标准评测与公开算法对照
+[实测结果](results/README.md) · [逐题完整记录](results/per_run.csv) · [公开领先成绩与比较口径](results/references.md)
 
-`coco_run.py` 将每次真实函数调用交给 COCO 官方记录器，一次运行评测一种方法。结果 ZIP 可直接交给 `cocopp` 生成达标率曲线、达到目标所需的查询次数和 HTML 图表。原有 `run.py` 保留五维配对实验及其自定义指标。
+## 题集与评分
 
-先按下文安装依赖，激活虚拟环境，再安装后处理工具。以下命令适用于 Windows 和 macOS。
+| 题集 | 题数 | 一个方案是什么 | 真实得分，均为越小越好 | 公开参照 |
+|---|---:|---|---|---|
+| 无容量仓库选址（UFL） | 15 | 选择至少一个仓库开放 | 开仓费用加上所有顾客的最低分配费用 | [OR-Library 题目及最优值](https://people.brunel.ac.uk/~mastjjb/jeb/orlib/uncapinfo.html) |
+| 图上设施选址（p-median） | 40 | 从图中选固定数量的节点作为设施 | 所有节点到最近设施的最短距离之和 | [OR-Library 定义](https://people.brunel.ac.uk/~mastjjb/jeb/orlib/pmedinfo.html) · [逐题最优值](https://people.brunel.ac.uk/~mastjjb/jeb/orlib/files/pmedopt.txt) |
+| 置换流水车间调度 | 120 | 给出全部工件的加工顺序，各台机器沿用该顺序 | 最后一件工件在最后一台机器上的完成时间 | [原始题目生成器](https://people.brunel.ac.uk/~mastjjb/jeb/orlib/flowshopinfo.html) · [公开排程与上界](https://zenodo.org/records/24342515) · [最优性记录](https://zenodo.org/records/4542886) |
 
-```sh
-python -m pip install cocopp==2.9.3
-python coco_run.py --arm raw_rule --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/check
-python -m cocopp --no-interactive -o outputs/plots outputs/check/raw_rule.zip 2009/NEWUOA_ros_noiseless
-```
+UFL 和 p-median 每题均有已证最优值。流水车间逐题区分已证最优值和公开可行排程取得的最好已知上界。相对差距为 `100 × (本次最佳得分 − 参考值) / 参考值`。对上界得到 0% 表示追平参考排程，对已证最优值得到 0% 表示达到最优。不同题集的费用、距离与时间单位分别汇总。
 
-以上命令评测固定规则，共 8 个问题，最多 200 次真实查询，模型调用为零。最后一条命令会下载公开基线并生成对比图。公开基线覆盖更多问题，小样本的汇总曲线可能涉及不同的题目范围。要在严格相同的范围上比较，请下载下方的 NEWUOA 数据包到当前目录，再运行：
+## 一次实验怎样进行
 
-```sh
-python coco_compare.py outputs/check/raw_rule.zip NEWUOA_ros_noiseless.tgz --budget 25 --target 1
-```
+1. 每题使用随机种子 11、29、47。对同一题和同一种子，六种策略共享 12 个不同的初始可行方案及其真实得分。
+2. 此后进行 12 轮。每轮从迄今最好的方案出发，生成 8 个不同且尚未评分的合法邻居。例如，p-median 在每个邻居中换掉一个设施，流水车间交换或移动一个工件。
+3. 策略选一个候选，程序计算它的真实得分并加入历史。下一轮重新生成 8 个选项。策略选了不同的方案后，后续候选也可能不同。
+4. 每条轨迹实际评分 24 次。全套为 175 题 × 3 种子 × 6 策略，共 3,150 条轨迹。每题的公开参考值仅用于事后评分。
 
-输出按函数、维度和实例列出两边的命中次数和运行次数。命中表示在前 25 次真实查询内，最优目标值与已知最优值之差达到 1 或更小。重复运行先在同一问题内求成功率，各问题再等权平均。上述配置的实测值为固定规则 25%，NEWUOA 50%。[NEWUOA 官方数据包](https://raw.githubusercontent.com/numbbo/data-archive/gh-pages/data-archive/bbob/2009/NEWUOA_ros_noiseless.tgz)
+模型看到的是任务说明、带列名的方案特征、迄今最好及最近两条已测记录（去重），以及 8 个候选的特征。特征和得分使用 12 个初始方案的均值和标准差固定换算。模型回答一个候选编号 0 至 7。符号回归（SR）每轮使用已有的全部已测记录重新拟合；`x0` 起依次对应提示中的特征列。
 
-**运行模型对照。** 按下文设置 `BBO_API_KEY`、`BBO_MODEL` 和服务地址。以下两组使用相同的起点、候选生成规则和预算；公式组额外看到 SR 表达式。每组最多 40 次模型调用。短名称用于图表标注，实际模型记录在输出目录的 `config.json` 中。
+| 命令中的策略名 | 如何选择下一项 | 使用模型 API |
+|---|---|---|
+| `random` | 在 8 个候选中均匀随机选一项 | 否 |
+| `deepseek` | 模型根据结构特征和已有观测选择 | 是 |
+| `deepseek-operon` | 模型同时收到 Operon 的 8 个预测值和拟合公式 | 是 |
+| `deepseek-gplearn` | 模型同时收到 gplearn 的 8 个预测值和拟合公式 | 是 |
+| `greedy-operon` | 直接选 Operon 预测得分最低的一项 | 否 |
+| `greedy-gplearn` | 直接选 gplearn 预测得分最低的一项 | 否 |
 
-```sh
-python coco_run.py --arm raw_numeric --name SR-numeric --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/numeric
-python coco_run.py --arm raw_formula --name SR-formula --functions 1 15 --dimensions 2 5 --instances 1 2 --budget 25 --out outputs/formula
-python -m cocopp --no-interactive -o outputs/sr-plots outputs/numeric/SR-numeric.zip outputs/formula/SR-formula.zip
-```
+模型使用 SR 的两组都同时增加预测和公式，因此这六组能检验整套 SR 信息的作用；要单独估计展示公式的作用，还需要相同 SR 后端的仅预测组。公开最优值用于衡量结果离目标多远。论文中其他算法的耗时或评分次数需另行匹配后才能比较效率。
 
-**规划全套评测。** `--full` 使用固定版本 COCO 的默认套件，共 24 个函数、6 种维度（2、3、5、10、20、40）、每组 15 个实例。预算包含 20 个初始点，其后每次从新生成的 20 个候选点中选一个进行真实查询。可以用 `--budget` 设每题固定次数，也可以用 `--budget-per-dim` 设每题预算为维度的倍数。先运行下列命令查看调用上限，移除 `--plan` 后才会执行。高维度和长历史也会增加单次模型请求的长度。
+## 安装与准备数据
 
-```sh
-python coco_run.py --full --arm raw_formula --budget 70 --out outputs/full-formula --plan
-```
+以下命令均在项目根目录执行。本地验证使用 64 位 CPython 3.13。使用其他平台时，可先查看 pyoperon 为该 Python 版本提供的系统与架构组合。[pyoperon 安装包](https://pypi.org/project/pyoperon/0.6.1/#files)
 
-同配置、同目录重跑可恢复。脚本利用已保存的选点重建完整 COCO 日志，已经保存的模型决策会直接复用。ZIP 仅在所选问题全部结束后生成。发布时请保留实际模型 ID、运行配置、代码版本和预算。COCO 接受与论文或预印本关联的完整数据集申请，按每个算法变体分别打包并向官方数据仓库提交收录请求。[官方发布说明](https://coco-platform.org/howto-publish.html)
-
-## 安装
-
-### macOS 快速开始（默认终端 zsh）
-
-建议使用原生 CPython 3.13。Apple Silicon 有对应的 COCO 预编译包。Intel Mac 安装 COCO 2.8.3 时需要从源码编译，请先安装 Xcode Command Line Tools（`xcode-select --install`）。当前已在 Windows 完成端到端测试，macOS 已核对依赖发行文件，尚待真机验证。[COCO 发行文件](https://pypi.org/project/coco-experiment/2.8.3/#files)
-
-在解压后的 `bbob-api` 目录打开终端，先运行本地自检：
-
-```zsh
-python3.13 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python tests/test_workflow.py
-```
-
-自检通过后，在同一终端输入 API Key 和服务商提供的模型 ID，运行 4 次模型选点的小实验。默认使用 OpenAI API；其他兼容服务先设置 `export BBO_BASE_URL='你的服务商 API 根地址'`。
-
-```zsh
-read -rs 'BBO_API_KEY?API Key: '; echo
-export BBO_API_KEY
-read 'BBO_MODEL?Model ID: '
-export BBO_MODEL
-python run.py --functions 15 --instances 18 --arms k_numeric k_formula --rounds 2 --out outputs/pilot
-```
-
-下文的实验选项也适用于 macOS。激活虚拟环境后，用 `python run.py` 调用即可。
-
-### Windows
-
-本机验证环境为 Windows、Python 3.13.7。以下 PowerShell 命令在本目录执行。
+Windows PowerShell：
 
 ```powershell
 py -3.13 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r selector-requirements.txt
 ```
 
-## 选择服务与模型
+macOS / Linux：
 
-将地址设为你信任的供应商的 API 根地址，模型名使用该供应商为你的 Key 开放的实际模型 ID。默认地址为 OpenAI 公共 API 的 `https://api.openai.com/v1`。兼容服务需要支持 `POST /chat/completions`、system/user 消息和文本 JSON 回答。模型需返回形如 `{"pick":3}` 的候选编号。
+```sh
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r selector-requirements.txt
+```
+
+下载并校验 3 套公开数据。已校验的文件会在后续运行中复用，默认位置为 `.cache/`。
+
+```sh
+python -m selection_bench.run --prepare-only
+```
+
+要核验已发布的 3,150 条轨迹，准备好数据后可直接运行 `python -m selection_bench.verify --csv results/per_run.csv`。该命令使用逐轮选择编号重建实际解并复算目标值。
+
+先在一题上运行三种本地策略。运行完可以打开 `outputs/readme-check/pmedian/pmed1/11/` 中的三个 JSON 文件查看解、分数和各轮选择。
+
+```sh
+python -m selection_bench.run --suite pmedian --case pmed1 --seed 11 --policy random greedy-operon greedy-gplearn --out outputs/readme-check
+```
+
+## 接入模型与开展完整实验
+
+三个模型策略共用一个 Chat Completions 客户端。环境变量 `DEEPSEEK_BASE_URL` 填接口前缀，程序会追加 `/chat/completions`；`DEEPSEEK_MODEL` 填服务商的确切模型 ID。接口需要支持关闭思考、JSON 对象输出和温度 0。API Key 在本机终端输入。
+
+Windows PowerShell：
 
 ```powershell
-$env:BBO_BASE_URL = 'https://api.openai.com/v1'
-$env:BBO_MODEL = Read-Host 'Model ID'
-$secret = Read-Host 'API Key' -AsSecureString
-$env:BBO_API_KEY = [System.Net.NetworkCredential]::new('', $secret).Password
+$env:DEEPSEEK_BASE_URL = Read-Host 'API base URL'
+$env:DEEPSEEK_MODEL = Read-Host 'Model ID'
+$env:DEEPSEEK_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'API key' -AsSecureString)).Password
 ```
 
-Key 仅供当前进程及其子进程读取。也可用 `--key-env OPENAI_API_KEY` 指定已有的环境变量。模型通过 `--model` 或 `BBO_MODEL` 选择。对支持推理强度设置的模型，可以加 `--effort low`。供应商的模型版本、采样与服务设置会影响最终分数。
+macOS / Linux（Bash 或 Zsh）：
 
-## 运行
-
-**预览完整预算**。此命令无需密钥即可执行。
-
-```powershell
-.\.venv\Scripts\python.exe run.py --plan
+```sh
+read -r DEEPSEEK_BASE_URL
+read -r DEEPSEEK_MODEL
+read -rs DEEPSEEK_API_KEY
+export DEEPSEEK_BASE_URL DEEPSEEK_MODEL DEEPSEEK_API_KEY
 ```
 
-**小规模实跑**。在 F15 的一个实例上比较 Kriging 数值组和公式组，各走 2 轮，共请求模型 4 次。
+先运行单题模型示例：
 
-```powershell
-.\.venv\Scripts\python.exe run.py --functions 15 --instances 18 --arms k_numeric k_formula --rounds 2 --out outputs/pilot
+```sh
+python -m selection_bench.run --suite pmedian --case pmed1 --seed 11 --policy deepseek --out outputs/model-check
 ```
 
-**完整实验**。默认测试 F8、F9、F15、F19，各取实例 18、19、20。每条路径共享同一任务的初始设计，先测 20 个点，每轮新生成 20 个候选点，选 1 个实测，再测 50 轮。完整运行包含 120 条路径、4,200 次模型选点，按路径累计 8,400 次函数评估。用量和费用取决于模型和服务商。
+需要全部题目、种子和策略时运行：
 
-```powershell
-.\.venv\Scripts\python.exe run.py --out outputs/full
+```sh
+python -m selection_bench.run --out outputs/selection
 ```
 
-| 选项 | 对应方法 |
+`--suite`、`--case`、`--seed`、`--policy` 可限定范围；`--workers` 控制并发轨迹数，默认 1。中断后以相同参数及模型重新运行可复用已完成的轨迹和已保存的选点。更换模型或代码时使用新的 `--out` 目录，并保存实际模型 ID 及依赖版本，避免把不同配置混在同一汇总中。
+
+## 汇总与离线核验
+
+完成整套运行后，先生成成绩表，再从保存的选点编号重新生成候选并复算每一步的真实得分。核验阶段使用本地题目缓存，无需 API 或重新拟合 SR。
+
+```sh
+python -m selection_bench.summarize --raw outputs/selection --out outputs/selection-summary
+python -m selection_bench.verify --csv outputs/selection-summary/per_run.csv --cache .cache --traces outputs/selection
+```
+
+| 输出文件 | 内容 |
 |---|---|
-| history | 模型根据历史观测和候选点坐标选点 |
-| raw_numeric / raw_formula | 原 SR 预测值 / 预测值加公式 |
-| k_numeric / k_formula | SR＋Kriging 预测值 / 预测值加公式 |
-| l_numeric / l_formula | SR＋LCF＋Kriging 预测值 / 预测值加公式 |
-| raw_rule / k_ei / l_ei | 原 SR 固定规则 / Kriging 预期改进规则 / LCF＋Kriging 预期改进规则，全部在本地计算 |
+| `per_run.csv` | 每题、每种子、每策略的解、得分、选择编号及逐轮得分 |
+| `summary.csv` | 各题集每种子的平均差距、三个种子间的样本标准差和参考值命中数 |
+| `paired.csv` | 同题同种子的两种策略谁赢、打平或输，以及平均差距相差多少个百分点 |
 
-## 结果与续跑
+`python -m selection_bench.progress` 从发布的逐轮记录计算进展曲线与配对区间。`python -m selection_bench.rank_options --csv results/per_run.csv` 会在实验结束后，单独计算每个已选方案在当轮八个候选中的真实排名。
 
-每完成一步就保存一次。网络异常、额度不足或返回无效编号时，程序停止。修复后重复相同命令，从上一个保存点继续。一次请求已发送但响应未成功保存时，重跑该步可能产生额外 API 用量。若改换模型、函数、预算或代码，请用新的输出目录。
+只汇总一个完整题集时，在汇总命令追加 `--suite pmedian`（也可用 `ufl` 或 `flowshop`），在核验命令追加 `--partial`。仅有单题试跑时，直接查看对应的轨迹 JSON。已有完整 `per_run.csv` 时，去掉 `--traces` 即可从 CSV 独立复算；加上该参数可再与原轨迹核对。离线复算检验选择对应的方案与分数；重新调用模型可能返回不同编号。
 
-* `config.json` 保存模型、端点、实验参数、运行环境和代码指纹。
-* 每条路径的 JSON 保存初始观测、候选点、拟合结果、模型请求消息、返回编号、供应商报告的模型名与 token 用量，以及所选点的真实目标值。
-* `results.csv` 给出逐任务、逐方法的最终目标值、差距缩小比例、查询次数、成功调用数和 token 数。`summary.json` 按方法汇总。差距缩小比例＝（初始最好值－最终最好值）／（初始最好值－已知最优值）×100%。各任务等权平均。
-* Token 来自已保存成功决策的服务端 usage 字段。缺失值在 CSV 中留空、在 JSON 中记为 null。固定规则组用量为零。初始评估按路径累计。
+## 复算专用算法
 
-在本机运行离线接口测试：
+这些算法可以利用完整的题目结构，帮助衡量最终解与传统算法的差距。下列命令可独立运行。
 
-```powershell
-.\.venv\Scripts\python.exe tests/test_workflow.py
+```sh
+python -m selection_bench.ufl_solver
+python -m pip install kmedoids==0.5.5 permutation-flowshop==1.0.3
+python -m selection_bench.pam
+python -m selection_bench.neh
 ```
 
-测试使用临时本地 HTTP 服务和合成密钥，覆盖十种设置、小规模完整流程、HTTP 429 中断、续跑和用量汇总。
+此前的连续优化脚本可按[对应版本的使用说明](https://github.com/yxue301603/bbob-api/blob/99c6d698493dc0bec0af778347f3d6ed9ca03c9f/README.md)运行。

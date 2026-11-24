@@ -1,0 +1,39 @@
+{
+  "protocol": "selection-v1",
+  "requested_model": "deepseek-v4.1-flash-1017",
+  "reported_model": "DeepSeek-V4.1-Flash-261017",
+  "temperature": 0,
+  "thinking": "disabled",
+  "seeds": [
+    11,
+    29,
+    47
+  ],
+  "initial_evaluations": 12,
+  "selection_rounds": 12,
+  "options_per_round": 8,
+  "symbolic_regression": {
+    "operon": "0.6.1",
+    "gplearn": "0.4.3"
+  },
+  "complete_suites": {
+    "ufl": 15,
+    "pmedian": 40,
+    "flowshop": 120
+  },
+  "scores_verified": {
+    "by_suite": {
+      "flowshop": 2160,
+      "pmedian": 720,
+      "ufl": 270
+    },
+    "step_objectives": 37800,
+    "trajectories": 3150
+  },
+  "successful_choices_matched_to_response": 18900,
+  "provider_request_hashes_reconstructed": 324,
+  "tokens_on_successful_choices": {
+    "input": 10662682,
+    "output": 109820
+  }
+}
