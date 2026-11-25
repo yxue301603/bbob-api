@@ -4,6 +4,18 @@
 
 [实测结果](results/README.md) · [逐题完整记录](results/per_run.csv) · [公开领先成绩与比较口径](results/references.md)
 
+### 流水车间的独立复验
+
+[复验成绩](results/confirmation/README.md)包含 Taillard 全部 120 题的新种子试验，以及 OR-Library 全部 31 道新题。沿用下方的安装与 API 配置后，可运行以下命令。第二条是仅针对 OR-Library 的补充对照，双方同时看到全部历史观测。
+
+```sh
+python -m selection_bench.confirm --workers 4
+python -m selection_bench.confirm --all-history --workers 4
+python -m selection_bench.analyse_confirmation
+```
+
+只复核已发布的实验时，运行 `python -m selection_bench.analyse_confirmation --replay-csv results/confirmation/runs.csv`。程序从实际选项编号重建排程、计算工期和配对统计，无需 API Key。
+
 ## 题集与评分
 
 | 题集 | 题数 | 一个方案是什么 | 真实得分，均为越小越好 | 公开参照 |

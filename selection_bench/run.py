@@ -42,11 +42,12 @@ def compact(row):
     return ",".join(format(float(value), ".2f") for value in row)
 
 
-def prompt_for(suite, names, X, y, Q, predictions, expression):
+def prompt_for(suite, names, X, y, Q, predictions, expression, all_history=False):
     best = int(np.argmin(y))
     lines = [TASKS[suite], "Lower observed score is better. Columns x0 onward are standardized from initial observations.",
-             ",".join(names), "Observed features | score (best, then two most recent):"]
-    for i in dict.fromkeys([best, len(y)-2, len(y)-1]):
+             ",".join(names), ("Observed features | score (all, chronological):" if all_history
+                              else "Observed features | score (best, then two most recent):")]
+    for i in (range(len(y)) if all_history else dict.fromkeys([best, len(y)-2, len(y)-1])):
         lines.append(compact(X[i]) + "|" + compact([y[i]]))
     lines.append("Options ID:features" + ("|predicted score" if predictions is not None else ""))
     for i, row in enumerate(Q):
@@ -83,21 +84,21 @@ def bind_model(out, model, endpoint):
             tmp.replace(path)
 
 
-def run_case(suite, case, seed, policy, out, choose=None, replay=None):
+def run_case(suite, case, seed, policy, out, choose=None, replay=None, *, all_history=False):
     job = f"{suite}/{case.name}/{seed}/{policy}"
     dest = out / (job + ".json")
     if replay is not None:
-        return trajectory(suite, case, seed, policy, job, dest, choose, replay)
+        return trajectory(suite, case, seed, policy, job, dest, choose, replay, all_history)
     if dest.is_file():
         return
     from filelock import FileLock
     dest.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(str(dest) + ".lock"):
         if not dest.is_file():
-            return trajectory(suite, case, seed, policy, job, dest, choose, replay)
+            return trajectory(suite, case, seed, policy, job, dest, choose, replay, all_history)
 
 
-def trajectory(suite, case, seed, policy, job, dest, choose, replay):
+def trajectory(suite, case, seed, policy, job, dest, choose, replay, all_history):
     receipt = dest.with_suffix(".steps")
     cached = json.loads(receipt.read_text()) if receipt.exists() and replay is None else []
     rng = np.random.default_rng(stream(suite, case.name, seed, "init"))
@@ -133,7 +134,7 @@ def trajectory(suite, case, seed, policy, job, dest, choose, replay):
         elif policy.startswith("greedy"):
             pick = int(np.argmin(predictions))
         else:
-            prompt = prompt_for(suite, case.feature_names, X, y, Q, predictions, expression)
+            prompt = prompt_for(suite, case.feature_names, X, y, Q, predictions, expression, all_history)
             digest = sha256(prompt.encode()).hexdigest()
             if t < len(cached):
                 if cached[t]["prompt_hash"] != digest:
